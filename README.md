@@ -7,24 +7,7 @@ Build easy OpenGL projects with GUI e.g. for algorithm visualisation: <https://w
 
 # Prerequisites
 
-## Mac OS
 
-1. Install command line tools `xcode-select --install`
- - Refer to <https://osxdaily.com/2014/02/12/install-command-line-tools-mac-os-x/>
-
-2. Install brew `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
- - Refer to <https://brew.sh/>
-
-3. Install CMake `brew install cmake` 
- - Run `cmake --version` to confirm that CMake works from commmand line, if not:
- - Make sure `/usr/local/bin` is in your `PATH`
-`echo $PATH` should contain `/usr/local/bin`
- - Refer to <https://stackoverflow.com/questions/32185079/installing-cmake-with-home-brew>
-
-5. Download and install VSCode
- - <https://code.visualstudio.com/>
- - Install the C/C++ extension for VS Code. You can install the C/C++ extension by searching for 'c++' in the Extensions view (⇧⌘X).
-  - (Optional) Install CMake language support <https://marketplace.visualstudio.com/items?itemName=twxs.cmake>
 
 ## Linux
 - This guide is based on Ubuntu distributions
