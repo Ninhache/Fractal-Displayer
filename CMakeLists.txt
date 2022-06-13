@@ -28,7 +28,7 @@ set(CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_FLAGS "-g -W -pedantic")
 
 # All .cpp-files
-set(SOURCES src/main.cpp)
+set(SOURCES src/main.cpp src/ColorPalet.cpp src/Fractal.cpp src/FractalHandler.cpp)
 # folder with .h files, e.g. include/
 include_directories(src)
 
