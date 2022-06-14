@@ -1,9 +1,10 @@
-#if !defined(FRACTAL_H)
-#define FRACTAL_H
+#ifndef FRACTAL_HPP
+#define FRACTAL_HPP
 
 #include "ColorPalet.hpp"
 #include "iostream"
 #include <SFML/Graphics.hpp>
+#include "main.hpp"
 
 class Fractal {
 
@@ -19,6 +20,7 @@ class Fractal {
         int iterations;
         Type type;
 
+        Fractal();
         Fractal(int type);
         Fractal(Type type);
         
