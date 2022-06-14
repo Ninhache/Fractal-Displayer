@@ -54,10 +54,8 @@ vec4 get_color(float current_iteration, float max_iterations, vec4 current_palle
 		}
 	}
 	return color;
-}*/
+}
 
-
-/*
 vec4 get_color(float current_iteration, float max_iterations, vec4 current_pallet[7], int colors_nb) {
 	
     float value = current_iteration / max_iterations;
@@ -74,9 +72,8 @@ vec4 get_color(float current_iteration, float max_iterations, vec4 current_palle
 	}
 
 	return color;
-}*/
+} 
 
-/*
 vec4 get_color(float current_iteration, float max_iterations, vec4 current_pallet[7], int colors_nb) {
 	float value = iterations / max_iterations;
 	vec4 color = vec4(1.f, 1.f, 1.f, 1.f);
@@ -113,17 +110,8 @@ void main(void) {
 		number.y = 2.f * temp.x * temp.y + center.y;
 		i++;
 	}
-
-	//>float smooth_value = float(i) + 1.0f - log(log(length(number))) / log(2.0f);
-	
-	
 	
 	float smooth_value = float(i + 1.f) - log(log(length(number))) / log(2.f);
-	/*
-	color = get_color(modulo(smooth_value, (float)max_iterations / 10.f), (float)max_iterations / 10.f, pallet, colors_nb);
-	color = get_color(i % (max_iterations / 10), max_iterations / 10, pallet, colors_nb);
-	*/
-
 
 	vec4 color;
 	if (i == iterations) {
@@ -134,7 +122,7 @@ void main(void) {
 			color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet, 7);
 		} else {
 			//color = get_color(i, max_iterations, pallet, 7);
-			color = get_color(float(i % (iterations / 10)), float(iterations / 10), pallet, 7);
+			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet, 7);
 		}
 		
 	}
