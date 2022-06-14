@@ -1,12 +1,4 @@
-#include <imgui.h>
-#include <imgui-SFML.h>
-
-#include <iostream>
-
-#include <SFML/Graphics.hpp>
-#include <SFML/Config.hpp>
-
-#include "ColorPalet.hpp"
+#include "main.hpp"
 
 #define WINDOW_WIDTH    1280
 #define WINDOW_HEIGHT   720
@@ -14,11 +6,12 @@
 #define MAX_ITERATIONS  1000
 
 
+
 int main(int argc, char *argv[]) {
 
-    ColorPalet pallet = ColorPalet();
+    //GLOBAL_PALLET = ColorPalet();    
 
-    pallet.registerPallet("original", {
+    GLOBAL_PALLET.registerPallet("original", {
             sf::Glsl::Vec4(  0.f / 255.f,   7.f / 255.f, 100.f / 255.f, 1.f),
             sf::Glsl::Vec4( 32.f / 255.f, 107.f / 255.f, 203.f / 255.f, 1.f),
             sf::Glsl::Vec4(237.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f),
@@ -27,7 +20,7 @@ int main(int argc, char *argv[]) {
             sf::Glsl::Vec4(  0.f / 255.f,   7.f / 255.f, 100.f / 255.f, 1.f)
     });
 
-    pallet.registerPallet("RGB", {
+    GLOBAL_PALLET.registerPallet("RGB", {
         sf::Glsl::Vec4(255.f / 255.f,   0.f / 255.f,   0.f / 255.f, 1.f),
         sf::Glsl::Vec4(255.f / 255.f, 255.f / 255.f,   0.f / 255.f, 1.f),
         sf::Glsl::Vec4(  0.f / 255.f, 255.f / 255.f,   0.f / 255.f, 1.f),
@@ -37,7 +30,7 @@ int main(int argc, char *argv[]) {
         sf::Glsl::Vec4(255.f / 255.f,   0.f / 255.f,   0.f / 255.f, 1.f)
     });
 
-    pallet.registerPallet("Black And White", {
+    GLOBAL_PALLET.registerPallet("Black And White", {
         sf::Glsl::Vec4(255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f),
         sf::Glsl::Vec4(  0.f / 255.f,   0.f / 255.f,   0.f / 255.f, 1.f),
         sf::Glsl::Vec4(255.f / 255.f, 255.f / 255.f, 255.f / 255.f, 1.f)
@@ -62,7 +55,7 @@ int main(int argc, char *argv[]) {
     float scale = 1.5f;
     bool smooth = true;
 
-    std::vector<sf::Glsl::Vec4> current_colors = pallet.getPallet(1);
+    std::vector<sf::Glsl::Vec4> current_colors = GLOBAL_PALLET.getPallet(0);
 
     shader.setUniform("resolution", sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
     shader.setUniform("iterations", iterations);
