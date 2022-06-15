@@ -13,6 +13,11 @@ ColorPalet::ColorPalet() {
     this->pallet_pairs = {};
     this->pallet_names = {};
     this->pallet_colors = {};
+    this->background_color = sf::Glsl::Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+}
+
+void ColorPalet::setBackgroundColor(sf::Glsl::Vec4 color) {
+    this->background_color = color;
 }
 
 void ColorPalet::registerPallet(std::string label, std::vector<sf::Glsl::Vec4> pallet) {
