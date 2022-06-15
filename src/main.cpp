@@ -10,6 +10,7 @@
 int main(int argc, char *argv[]) {
 
     //GLOBAL_PALLET = ColorPalet();    
+    int CURRENT_COLOR_INDEX = 0;
 
     GLOBAL_PALLET.registerPallet("original", {
             sf::Glsl::Vec4(  0.f / 255.f,   7.f / 255.f, 100.f / 255.f, 1.f),
@@ -55,13 +56,14 @@ int main(int argc, char *argv[]) {
     float scale = 1.5f;
     bool smooth = true;
 
-    std::vector<sf::Glsl::Vec4> current_colors = GLOBAL_PALLET.getPallet(0);
+    std::vector<sf::Glsl::Vec4> current_colors = GLOBAL_PALLET.getPallet(CURRENT_COLOR_INDEX);
 
     shader.setUniform("resolution", sf::Vector2f(WINDOW_WIDTH, WINDOW_HEIGHT));
     shader.setUniform("iterations", iterations);
     shader.setUniformArray("pallet", palletToArray(current_colors), current_colors.size());
     shader.setUniform("scale", scale);
     shader.setUniform("smoth", smooth);
+    shader.setUniform("colors_nb", (int) current_colors.size());
 
     sf::Clock deltaClock;
     while (window.isOpen()) {
@@ -92,8 +94,33 @@ int main(int argc, char *argv[]) {
         ImGui::SliderInt("Iterations", &iterations, 1, MAX_ITERATIONS);
         ImGui::Separator();
         ImGui::Text("Colors Settings");
-        
-        
+
+        /*  
+        if (ImGui::Button("Change Pallet")) {
+            current_colors = GLOBAL_PALLET.getPallet(rand() % GLOBAL_PALLET.pallet_pairs.size());
+        }*/
+
+        //ImGui::ListBox("Pallet", 0, GLOBAL_PALLET.pallet_names.size());
+        /*ImGui::BeginListBox("Pallet", &CURRENT_COLOR_INDEX);
+        for (int i = 0; i < GLOBAL_PALLET.pallet_names.size(); i++) {
+            if (ImGui::Selectable(GLOBAL_PALLET.pallet_names[i].c_str(), CURRENT_COLOR_INDEX == i)) {
+                CURRENT_COLOR_INDEX = i;
+            }
+        }
+        ImGui::EndListBox();
+        */
+        if (ImGui::BeginCombo("Multiselectable", "preview")) {
+            for (int i = 0; i < GLOBAL_PALLET.pallet_names.size(); i++) {
+                bool is_selected = CURRENT_COLOR_INDEX == i;
+                if (ImGui::Selectable(GLOBAL_PALLET.pallet_names[i].c_str(), &is_selected)) {
+                    CURRENT_COLOR_INDEX = i;
+                }
+                if (is_selected) {
+                    current_colors = GLOBAL_PALLET.getPallet(i);
+                }
+            }
+            ImGui::EndCombo();
+        }
 
         ImGui::Checkbox("Smooth", &smooth);
         ImGui::End();
@@ -101,6 +128,8 @@ int main(int argc, char *argv[]) {
         shader.setUniform("iterations", iterations);
         shader.setUniform("scale", scale);
         shader.setUniform("smoth", smooth);
+        shader.setUniform("colors_nb", (int) current_colors.size() -1);
+        shader.setUniformArray("pallet", palletToArray(current_colors), current_colors.size());
 
         window.clear();
         window.draw(spr, &shader);
