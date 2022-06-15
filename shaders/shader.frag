@@ -3,7 +3,8 @@ precision highp float;
 
 uniform vec2 resolution;
 uniform int iterations;
-uniform vec4 pallet[7];
+uniform vec4 pallet[10];
+uniform int colors_nb;
 uniform float scale;
 uniform bool smoth;
 
@@ -15,17 +16,17 @@ float modulus_2(vec2 z) {
 	return z.x * z.x + z.y * z.y;
 }
 
-vec4 get_color(float iterations, float max_iterations, vec4 pallet[7], int colors_nb) {
+vec4 get_color(float iterations, float max_iterations, vec4 pallet[10]) {
 	float value = iterations / max_iterations;
-	vec4 color = vec4(1.f, 1.f, 1.f, 1.f);
+	vec4 color = vec4(0.f,0.f,0.f, 1.f);
 
 	float min_value;
 	float max_value;
 
-	for (int i = 0; i < int(colors_nb); i++)
+	for (int i = 0; i < colors_nb; i++)
 	{
-		min_value = float(i) / colors_nb;
-		max_value = float((i + 1)) / colors_nb;
+		min_value = float(i) / float(colors_nb);
+		max_value = float((i + 1.0f)) / float(colors_nb);
 
 		if (value >= min_value && value <= max_value) {
 			color = mix(pallet[i], pallet[i + 1], (value - min_value) * colors_nb);
@@ -119,10 +120,10 @@ void main(void) {
 	} else {
 		if (smoth) {
 			//color = get_color(smooth_value, (float)max_iterations, pallet, 7);
-			color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet, 7);
+			color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet);
 		} else {
 			//color = get_color(i, max_iterations, pallet, 7);
-			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet, 7);
+			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet);
 		}
 		
 	}
