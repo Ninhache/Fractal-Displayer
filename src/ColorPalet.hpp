@@ -12,10 +12,12 @@ class ColorPalet {
         
         //std::vector<std::pair<std::string, std::vector<std::vector<sf::Glsl::Vec4>>>> pallet_pairs;
         std::map<std::string, std::vector<sf::Glsl::Vec4>> pallet_pairs;
+        std::vector<std::string> pallet_names;
+        std::vector<std::vector<sf::Glsl::Vec4>> pallet_colors;
 
         std::vector<sf::Glsl::Vec4> getPallet(std::string label);
         std::vector<sf::Glsl::Vec4> getPallet(size_t index);
-
+        
         void registerPallet(std::string label, std::vector<sf::Glsl::Vec4> pallet);
         //std::vector<std::vector<sf::Glsl::Vec4>> getPalletByLabel(std::string label);
 };
