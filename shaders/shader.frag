@@ -1,12 +1,16 @@
 #version 330
 precision highp float;
 
+#define PI 3.1415926538
+
+uniform vec2 v_center;
 uniform vec2 resolution;
 uniform int iterations;
 uniform vec4 pallet[10];
 uniform int colors_nb;
 uniform float scale;
 uniform bool smoth;
+uniform vec4 background_color;
 
 float modulo(float a, float b) {
 	return a - b * floor(a / b);
@@ -23,8 +27,7 @@ vec4 get_color(float iterations, float max_iterations, vec4 pallet[10]) {
 	float min_value;
 	float max_value;
 
-	for (int i = 0; i < colors_nb; i++)
-	{
+	for (int i = 0; i < colors_nb; i++) {
 		min_value = float(i) / float(colors_nb);
 		max_value = float((i + 1.0f)) / float(colors_nb);
 
@@ -36,6 +39,16 @@ vec4 get_color(float iterations, float max_iterations, vec4 pallet[10]) {
 
 	return color;
 }
+
+//https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set
+vec4 newColorisation(vec4 old_color, float V) {
+	float x = log(V) / 1.f;
+
+	vec4 new_color = old_color * ((1 + cos(2 * PI * x)) / 2.f);
+
+	return new_color;
+}
+
 
 /*
 vec4 get_color(float current_iteration, float max_iterations, vec4 current_pallet[7], int colors_nb) {
@@ -97,13 +110,13 @@ vec4 get_color(float current_iteration, float max_iterations, vec4 current_palle
 */	
 void main(void) {
 
-	vec2 center = ((2.0 * gl_FragCoord.xy - resolution.xy) / resolution.y) * scale;
+	vec2 center = ((2.0 * gl_FragCoord.xy - resolution.xy) / resolution.y) * scale + v_center;
     center.x -= 0.5;
 
 	int i = 0;
 	vec2 number = vec2(0.0f, 0.0f);
 	vec2 temp = vec2(0.0f, 0.0f);
-	float max_modulus = 4.f;
+	float max_modulus = 32.f;
 	
 	while (modulus_2(number) < max_modulus && i < iterations) {
 		temp = number;
@@ -114,13 +127,16 @@ void main(void) {
 	
 	float smooth_value = float(i + 1.f) - log(log(length(number))) / log(2.f);
 
+	float V = log(modulus_2(number))/1.f;
 	vec4 color;
 	if (i == iterations) {
-		color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		color = background_color;
 	} else {
 		if (smoth) {
 			//color = get_color(smooth_value, (float)max_iterations, pallet, 7);
-			color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet);
+			//color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet);
+			color = get_color(smooth_value, float(iterations), pallet);
+			color = newColorisation(color, V);
 		} else {
 			//color = get_color(i, max_iterations, pallet, 7);
 			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet);
