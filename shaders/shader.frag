@@ -1,9 +1,10 @@
 #version 330
 precision highp float;
 
+
 #define PI 3.1415926538
 
-uniform vec2 v_center;
+//uniform vec2 v_center;
 uniform vec2 resolution;
 uniform int iterations;
 uniform vec4 pallet[10];
@@ -11,6 +12,8 @@ uniform int colors_nb;
 uniform float scale;
 uniform bool smoth;
 uniform vec4 background_color;
+uniform float x_offset;
+uniform float y_offset;
 
 float modulo(float a, float b) {
 	return a - b * floor(a / b);
@@ -48,6 +51,24 @@ vec4 newColorisation(vec4 old_color, float V) {
 
 	return new_color;
 }
+
+/*
+vec4 quasiperiodicColorisation(vec4 old_color, float V) {
+	float x = log(V) / 1.f;
+	
+	vec3 abc = vec3(1, (1.f / (3.f * sqrt(2.f))), 1.f / (7.f * pow(3, (1.f/8.f)))) * (1.f / log(2));
+
+	vec4 new_color = vec4((255.f * ((1.f - (cos(abc[0] * x)))/2.f)),
+		 				  (255.f * ((1.f - (cos(abc[1] * x)))/2.f)),
+		 				  (255.f * ((1.f - (cos(abc[2] * x)))/2.f)),
+		 				  1.f);
+
+
+
+	
+	return new_color;
+}
+*/
 
 
 /*
@@ -110,13 +131,19 @@ vec4 get_color(float current_iteration, float max_iterations, vec4 current_palle
 */	
 void main(void) {
 
-	vec2 center = ((2.0 * gl_FragCoord.xy - resolution.xy) / resolution.y) * scale + v_center;
-    center.x -= 0.5;
+	vec2 center = ((2.0 * gl_FragCoord.xy - resolution.xy) / resolution.y) * scale ;
+    center.x -= x_offset;
+	center.y -= y_offset;
 
 	int i = 0;
 	vec2 number = vec2(0.0f, 0.0f);
 	vec2 temp = vec2(0.0f, 0.0f);
-	float max_modulus = 32.f;
+	float max_modulus;
+	if (smoth) {
+		max_modulus = 100.f;
+	} else {
+		max_modulus = 4.f;
+	}
 	
 	while (modulus_2(number) < max_modulus && i < iterations) {
 		temp = number;
@@ -136,7 +163,8 @@ void main(void) {
 			//color = get_color(smooth_value, (float)max_iterations, pallet, 7);
 			//color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet);
 			color = get_color(smooth_value, float(iterations), pallet);
-			color = newColorisation(color, V);
+			//color = newColorisation(color, V);
+			//color = quasiperiodicColorisation(color, V);
 		} else {
 			//color = get_color(i, max_iterations, pallet, 7);
 			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet);

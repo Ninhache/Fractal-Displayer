@@ -3,7 +3,7 @@
 #define WINDOW_WIDTH    1280
 #define WINDOW_HEIGHT   720
 
-#define MAX_ITERATIONS  1000
+#define MAX_ITERATIONS  10000
 
 sf::Vector2f screen_to_fractal(sf::Vector2i screen_pos, sf::RenderWindow* window)
 {
@@ -85,7 +85,8 @@ int main(int argc, char *argv[]) {
     shader.setUniform("smoth", smooth);
     shader.setUniform("colors_nb", (int) current_colors.size() -1);
     shader.setUniform("background_color", GLOBAL_PALLET.background_color);
-    shader.setUniform("v_center", current_center);
+    shader.setUniform("x_offset", current_center.x);
+    shader.setUniform("y_offset", current_center.y);
 
     sf::Clock deltaClock;
     while (window.isOpen()) {
@@ -96,6 +97,26 @@ int main(int argc, char *argv[]) {
                 window.close();
             }
             if (event.type == sf::Event::KeyPressed) {
+                // ratio from window
+                // define the ratio from the window 
+                float ratio_x = (((float) window.getSize().x / (float) WINDOW_WIDTH) * scale) / 100;
+                float ratio_y = (((float) window.getSize().y / (float) WINDOW_HEIGHT) * scale) / 100;
+
+
+                if (event.key.code == sf::Keyboard::Right) {
+                    current_center.x += ratio_x;
+                    shader.setUniform("x_offset", current_center.x);
+                } else if (event.key.code == sf::Keyboard::Left) {
+                    current_center.x -= ratio_x;
+                    shader.setUniform("x_offset", current_center.x);
+                } else if (event.key.code == sf::Keyboard::Up) {
+                    current_center.y -= ratio_y;
+                    shader.setUniform("y_offset", current_center.y);
+                } else if (event.key.code == sf::Keyboard::Down) {
+                    current_center.y += ratio_y;
+                    shader.setUniform("y_offset", current_center.y);
+                }
+
                 if (event.key.code == sf::Keyboard::Add) {
                     if (MAX_ITERATIONS > iterations) {
                         iterations += 1;
