@@ -1,5 +1,5 @@
 # Shoutout to CMake guide: https://eliasdaler.github.io/using-cmake/
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.5)
 
 IF (WIN32)
     set(CMAKE_C_COMPILER C:/msys64/mingw64/bin/gcc.exe)
@@ -23,9 +23,16 @@ project(${ProjectId})
 
 # Use c++ 17
 set(CMAKE_CXX_STANDARD 17)
-# Enable additional warnings and debug mode
+# Default to an optimized build so the real-time renderer is not crippled by -O0.
+# Override with `cmake .. -DCMAKE_BUILD_TYPE=Debug` to get debug symbols back.
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+# Enable additional warnings; keep -pedantic in both modes.
 # https://caiorss.github.io/C-Cpp-Notes/compiler-flags-options.html
-set (CMAKE_CXX_FLAGS "-g -W -pedantic")
+set(CMAKE_CXX_FLAGS_DEBUG   "-g -W -pedantic")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -W -pedantic")
+set(CMAKE_CXX_FLAGS         "")
 
 # All .cpp-files
 set(SOURCES src/main.cpp src/ColorPalet.cpp src/Fractal.cpp src/FractalHandler.cpp)

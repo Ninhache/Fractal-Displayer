@@ -1,6 +1,8 @@
-#version 330
-precision highp float;
-
+#version 400
+// GLSL analog of OpenCL's `#pragma OPENCL EXTENSION cl_khr_fp64`: fp64 is core in
+// GL 4.0, but declaring the extension documents the hard dependency. Adjacent pixels
+// collapse to the same coordinate past ~10^4 zoom in 32-bit float; double reaches ~10^13.
+#extension GL_ARB_gpu_shader_fp64 : enable
 
 #define PI 3.1415926538
 
@@ -9,11 +11,19 @@ uniform vec2 resolution;
 uniform int iterations;
 uniform vec4 pallet[10];
 uniform int colors_nb;
-uniform float scale;
 uniform bool smoth;
 uniform vec4 background_color;
-uniform float x_offset;
-uniform float y_offset;
+
+// SFML can't upload double uniforms. Two floats only preserve 48 of a double's 52 bits
+// (and splitting df64 hi/lo separately leaves a 4-bit gap → effective ~10^13), so the
+// view center is carried as a 5-float expansion: a sum whose terms descend in magnitude
+// and, summed in double on the GPU, reconstruct the full ~104-bit df64 (~10^30). scale
+// stays a single double — its tiny magnitude needs only relative precision.
+uniform float scale_hi;
+uniform float scale_lo;
+uniform float x_off[5];   // view center X as a 5-float expansion
+uniform float y_off[5];   // view center Y as a 5-float expansion
+uniform bool  dd_mode;    // true => use the heavy df64 path (engaged only when deep)
 
 float modulo(float a, float b) {
 	return a - b * floor(a / b);
@@ -21,6 +31,51 @@ float modulo(float a, float b) {
 
 float modulus_2(vec2 z) {
 	return z.x * z.x + z.y * z.y;
+}
+
+// ---- double-double (df64) arithmetic -------------------------------------------------
+// A df64 value is an unevaluated sum hi+lo (lo <= 0.5 ulp(hi)) carried in a dvec2
+// (.x=hi, .y=lo), giving ~106 mantissa bits. Standard Bailey/Hida QD algorithms.
+double two_sum(double a, double b, out double err) {
+	double s = a + b;
+	double bb = s - a;
+	err = (a - (s - bb)) + (b - bb);
+	return s;
+}
+double quick_two_sum(double a, double b, out double err) {
+	double s = a + b;
+	err = b - (s - a);
+	return s;
+}
+double two_prod(double a, double b, out double err) {
+	double p = a * b;
+	err = fma(a, b, -p);   // fp64 fma is core in GLSL 4.0
+	return p;
+}
+dvec2 df_add(dvec2 a, dvec2 b) {
+	double s2; double s1 = two_sum(a.x, b.x, s2);
+	double t2; double t1 = two_sum(a.y, b.y, t2);
+	s2 += t1; s1 = quick_two_sum(s1, s2, s2);
+	s2 += t2; s1 = quick_two_sum(s1, s2, s2);
+	return dvec2(s1, s2);
+}
+dvec2 df_mul(dvec2 a, dvec2 b) {
+	double p2; double p1 = two_prod(a.x, b.x, p2);
+	p2 += a.x * b.y + a.y * b.x;
+	p1 = quick_two_sum(p1, p2, p2);
+	return dvec2(p1, p2);
+}
+dvec2 df_neg(dvec2 a) { return dvec2(-a.x, -a.y); }
+dvec2 df_sub(dvec2 a, dvec2 b) { return df_add(a, df_neg(b)); }
+
+// Reconstruct a df64 from the CPU's 5-float expansion (summed exactly via df_add).
+dvec2 expand5(float e[5]) {
+	dvec2 a = dvec2(double(e[0]), 0.0lf);
+	a = df_add(a, dvec2(double(e[1]), 0.0lf));
+	a = df_add(a, dvec2(double(e[2]), 0.0lf));
+	a = df_add(a, dvec2(double(e[3]), 0.0lf));
+	a = df_add(a, dvec2(double(e[4]), 0.0lf));
+	return a;
 }
 
 vec4 get_color(float iterations, float max_iterations, vec4 pallet[10]) {
@@ -130,46 +185,67 @@ vec4 get_color(float current_iteration, float max_iterations, vec4 current_palle
 }
 */	
 void main(void) {
+	double scale = double(scale_hi) + double(scale_lo);
+	// Pixel base term is O(1); times the tiny scale it is a precise plain double. Only
+	// the subtraction of the large offset needs extra precision (done per-path below).
+	double base_x = double(2.0 * gl_FragCoord.x - resolution.x) / double(resolution.y);
+	double base_y = double(2.0 * gl_FragCoord.y - resolution.y) / double(resolution.y);
+	double dx = base_x * scale;
+	double dy = base_y * scale;
 
-	vec2 center = ((2.0 * gl_FragCoord.xy - resolution.xy) / resolution.y) * scale ;
-    center.x -= x_offset;
-	center.y -= y_offset;
-
+	double max_modulus = smoth ? 100.0lf : 4.0lf;
 	int i = 0;
-	vec2 number = vec2(0.0f, 0.0f);
-	vec2 temp = vec2(0.0f, 0.0f);
-	float max_modulus;
-	if (smoth) {
-		max_modulus = 100.f;
-	} else {
-		max_modulus = 4.f;
-	}
-	
-	while (modulus_2(number) < max_modulus && i < iterations) {
-		temp = number;
-		number.x = temp.x * temp.x - temp.y * temp.y + center.x;
-		number.y = 2.f * temp.x * temp.y + center.y;
-		i++;
-	}
-	
-	float smooth_value = float(i + 1.f) - log(log(length(number))) / log(2.f);
+	float mod2;   // |z|^2 at escape (hi part), in float — plenty for coloring
 
-	float V = log(modulus_2(number))/1.f;
+	if (dd_mode) {
+		// ---- double-double path (~10^30) -------------------------------------------
+		dvec2 x_off_dd = expand5(x_off);
+		dvec2 y_off_dd = expand5(y_off);
+		dvec2 cx = df_sub(dvec2(dx, 0.0lf), x_off_dd);
+		dvec2 cy = df_sub(dvec2(dy, 0.0lf), y_off_dd);
+
+		dvec2 zx = dvec2(0.0lf, 0.0lf);
+		dvec2 zy = dvec2(0.0lf, 0.0lf);
+		while (i < iterations) {
+			dvec2 zx2 = df_mul(zx, zx);
+			dvec2 zy2 = df_mul(zy, zy);
+			if (zx2.x + zy2.x >= max_modulus) break;     // hi-only escape test
+			dvec2 nzx = df_add(df_sub(zx2, zy2), cx);
+			dvec2 xy  = df_mul(zx, zy);
+			dvec2 nzy = df_add(df_add(xy, xy), cy);       // 2*zx*zy + cy
+			zx = nzx; zy = nzy;
+			i++;
+		}
+		mod2 = float(zx.x * zx.x + zy.x * zy.x);
+	} else {
+		// ---- fast plain-double path (~10^13) ---------------------------------------
+		// First three expansion terms reconstruct the offset to ~72 bits (full double).
+		dvec2 center;
+		center.x = dx - (double(x_off[0]) + double(x_off[1]) + double(x_off[2]));
+		center.y = dy - (double(y_off[0]) + double(y_off[1]) + double(y_off[2]));
+
+		dvec2 number = dvec2(0.0lf, 0.0lf);
+		dvec2 temp   = dvec2(0.0lf, 0.0lf);
+		while (number.x * number.x + number.y * number.y < max_modulus && i < iterations) {
+			temp = number;
+			number.x = temp.x * temp.x - temp.y * temp.y + center.x;
+			number.y = 2.0lf * temp.x * temp.y + center.y;
+			i++;
+		}
+		mod2 = float(number.x * number.x + number.y * number.y);
+	}
+
 	vec4 color;
 	if (i == iterations) {
 		color = background_color;
 	} else {
 		if (smoth) {
-			//color = get_color(smooth_value, (float)max_iterations, pallet, 7);
-			//color = get_color(modulo(smooth_value, float(iterations / 10.f)), float(iterations / 10.f), pallet);
+			// log(|z|) = 0.5*log(|z|^2); transcendentals only on escaped pixels.
+			float smooth_value = float(i + 1) - log(0.5 * log(mod2)) / log(2.0);
 			color = get_color(smooth_value, float(iterations), pallet);
-			//color = newColorisation(color, V);
-			//color = quasiperiodicColorisation(color, V);
 		} else {
-			//color = get_color(i, max_iterations, pallet, 7);
 			color = get_color(float(i % int(float(iterations / 10.f))), float(iterations / 10.f), pallet);
 		}
-		
 	}
 
 	gl_FragColor = color;
