@@ -33,10 +33,3 @@ Real-time GPU-rendered Mandelbrot set explorer. The CPU side manages state and U
 **Dependencies** (auto-fetched via CMake FetchContent):
 - SFML 2.5.1 — window, graphics, events
 - ImGui + ImGui-SFML 2.3 — settings panel
-
-## Known Quirks
-
-- `palletToArray()` allocates with `new` and never frees — known leak
-- Julia set is in the `Fractal::Type` enum but not wired up in the UI
-- `smoth` typo in shader uniform is intentional (matches the C++ side — don't fix one without the other)
-- `FractalHandler` is incomplete scaffolding
