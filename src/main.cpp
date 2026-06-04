@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #define WINDOW_WIDTH    1280
 #define WINDOW_HEIGHT   720
@@ -106,6 +109,31 @@ static void setDoubleAs2f(sf::Shader& shader, const std::string& a, const std::s
     shader.setUniform(b, lo);
 }
 
+// Standard ImGui "(?)" hover-help marker.
+static void HelpMarker(const char* desc) {
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+// Build a custom fragment shader by injecting the user's recurrence into the template.
+static std::string buildCustomSource(const std::string& formula) {
+    std::ifstream f("../shaders/custom_template.frag");
+    std::stringstream ss;
+    ss << f.rdbuf();
+    std::string src = ss.str();
+    const std::string marker = "%FORMULA%";
+    for (size_t pos = src.find(marker); pos != std::string::npos; pos = src.find(marker, pos + formula.size())) {
+        src.replace(pos, marker.size(), formula);
+    }
+    return src;
+}
+
 // Point the display sprite at the given render texture and stretch it to fill the window.
 static void updateSprite(sf::Sprite& spr, const sf::RenderTexture& rt,
                          sf::Vector2u windowSize) {
@@ -183,6 +211,7 @@ int main(int argc, char *argv[]) {
         std::cout << "The shader is not available\n";
         return -1;
     }
+    sf::Shader customShader;   // regenerated on demand for the custom-function mode
 
     int iterations = 50;
     // Geometry kept in double (center as double-double) so deep-zoom navigation doesn't
@@ -194,17 +223,64 @@ int main(int argc, char *argv[]) {
     dd center_x = {0.0, 0.0};
     dd center_y = {0.0, 0.0};
 
-    // Push the view geometry to the shader: scale as a single double, the offsets as
-    // double-double (each double split into two floats), plus the df64-mode flag that
-    // engages the heavy path only when zoomed past the plain-double precision wall.
+    // Fractal type + per-type params. 0=Mandelbrot 1=Julia 2=Burning Ship 3=Tricorn
+    // 4=Multibrot 5=Custom. Custom renders via customShader; the rest via `shader`.
+    int fractal_type = 0;
+    sf::Vector2f julia_c(-0.8f, 0.156f);
+    int power_d = 2;
+    char formula_buf[256] = "cadd(csqr(z), c)";
+    std::string customError;
+    sf::Shader* active = &shader;   // shader currently driving the render
+
+    // Push only the view geometry (scale + offsets) to whichever shader is active; dd_mode
+    // is meaningful only to the built-in shader (custom is double-only).
     auto pushView = [&]() {
-        setDoubleAs2f(shader, "scale_hi", "scale_lo", scale);
+        setDoubleAs2f(*active, "scale_hi", "scale_lo", scale);
         float xoff[5], yoff[5];
         dd_to_float5(center_x, xoff);
         dd_to_float5(center_y, yoff);
-        shader.setUniformArray("x_off", xoff, 5);
-        shader.setUniformArray("y_off", yoff, 5);
-        shader.setUniform("dd_mode", scale < DD_THRESHOLD);
+        active->setUniformArray("x_off", xoff, 5);
+        active->setUniformArray("y_off", yoff, 5);
+        if (active == &shader) active->setUniform("dd_mode", scale < DD_THRESHOLD);
+    };
+
+    // Push the full uniform state to a shader — used when (re)activating one so it has
+    // current values even if they changed while a different program was active.
+    auto pushAllUniforms = [&](sf::Shader& sh) {
+        sh.setUniform("iterations", iterations);
+        sh.setUniform("smoth", smooth);
+        sh.setUniform("colors_nb", (int) current_colors.size() - 1);
+        sh.setUniformArray("pallet", palletToArray(current_colors), current_colors.size());
+        sh.setUniform("background_color", GLOBAL_PALLET.background_color);
+        setDoubleAs2f(sh, "scale_hi", "scale_lo", scale);
+        float xoff[5], yoff[5];
+        dd_to_float5(center_x, xoff);
+        dd_to_float5(center_y, yoff);
+        sh.setUniformArray("x_off", xoff, 5);
+        sh.setUniformArray("y_off", yoff, 5);
+        if (&sh == &shader) {
+            sh.setUniform("dd_mode", scale < DD_THRESHOLD);
+            sh.setUniform("fractal_type", fractal_type);
+            sh.setUniform("julia_c", julia_c);
+            sh.setUniform("power_d", power_d);
+        }
+    };
+
+    // Compile the custom shader from the current formula; capture GLSL errors for the panel.
+    auto applyCustom = [&]() -> bool {
+        std::string src = buildCustomSource(formula_buf);
+        std::ostringstream errbuf;
+        std::streambuf* old = sf::err().rdbuf(errbuf.rdbuf());
+        bool ok = customShader.loadFromMemory(src, sf::Shader::Fragment);
+        sf::err().rdbuf(old);
+        if (ok) {
+            customError.clear();
+            pushAllUniforms(customShader);
+        } else {
+            customError = errbuf.str();
+            if (customError.empty()) customError = "Shader failed to compile.";
+        }
+        return ok;
     };
 
     shader.setUniform("resolution", sf::Vector2f(window.getSize().x, window.getSize().y));
@@ -213,6 +289,9 @@ int main(int argc, char *argv[]) {
     shader.setUniform("smoth", smooth);
     shader.setUniform("colors_nb", (int) current_colors.size() -1);
     shader.setUniform("background_color", GLOBAL_PALLET.background_color);
+    shader.setUniform("fractal_type", fractal_type);
+    shader.setUniform("julia_c", julia_c);
+    shader.setUniform("power_d", power_d);
     pushView();
 
     // --- Render state machine: only recompute the fractal when something changes ---
@@ -247,13 +326,13 @@ int main(int argc, char *argv[]) {
                 if (event.key.code == sf::Keyboard::Add) {
                     if (MAX_ITERATIONS > iterations) {
                         iterations += 1;
-                        shader.setUniform("iterations", iterations);
+                        active->setUniform("iterations", iterations);
                         markDirty();
                     }
                 } else if (event.key.code == sf::Keyboard::Subtract) {
                     if (1 < iterations) {
                         iterations -= 1;
-                        shader.setUniform("iterations", iterations);
+                        active->setUniform("iterations", iterations);
                         markDirty();
                     }
                 }
@@ -313,9 +392,57 @@ int main(int argc, char *argv[]) {
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::Separator();
         if (ImGui::SliderInt("Iterations", &iterations, 1, MAX_ITERATIONS)) {
-            shader.setUniform("iterations", iterations);
+            active->setUniform("iterations", iterations);
             markDirty();
         }
+        ImGui::Separator();
+
+        // --- Fractal type ---
+        const char* type_names[] = {"Mandelbrot", "Julia", "Burning Ship", "Tricorn", "Multibrot", "Custom"};
+        if (ImGui::Combo("Fractal Type", &fractal_type, type_names, IM_ARRAYSIZE(type_names))) {
+            if (fractal_type == 5) {            // Custom — compile current formula, switch if OK
+                if (applyCustom()) { active = &customShader; markDirty(); }
+            } else {
+                active = &shader;
+                shader.setUniform("fractal_type", fractal_type);
+                pushAllUniforms(shader);
+                markDirty();
+            }
+        }
+
+        if (fractal_type == 1) {                // Julia constant
+            bool ch = false;
+            ch |= ImGui::SliderFloat("Julia Re", &julia_c.x, -2.0f, 2.0f);
+            ch |= ImGui::SliderFloat("Julia Im", &julia_c.y, -2.0f, 2.0f);
+            if (ch) { shader.setUniform("julia_c", julia_c); markDirty(); }
+        } else if (fractal_type == 4) {         // Multibrot exponent
+            if (ImGui::SliderInt("Power d", &power_d, 2, 8)) {
+                shader.setUniform("power_d", power_d);
+                markDirty();
+            }
+        } else if (fractal_type == 5) {         // Custom function
+            ImGui::InputText("f(z,c)", formula_buf, sizeof(formula_buf));
+            ImGui::SameLine();
+            HelpMarker("Write the next z as a complex expression.\n"
+                       "c = pixel coordinate, z starts at 0.\n\n"
+                       "Helpers: cadd csub cmul cdiv csqr cconj cabsc cexp\n"
+                       "Vars: z, c     Constant: i (imaginary unit)\n\n"
+                       "Examples:\n"
+                       "  cadd(csqr(z), c)          Mandelbrot\n"
+                       "  cadd(cmul(csqr(z),z), c)  z^3 + c\n"
+                       "  cadd(csqr(cabsc(z)), c)   burning ship\n\n"
+                       "Double precision (~1e13 zoom).");
+            if (ImGui::Button("Apply")) {
+                if (applyCustom()) { active = &customShader; markDirty(); }
+            }
+            ImGui::TextDisabled("vars z,c  |  cadd csub cmul cdiv csqr cconj cabsc cexp  |  i");
+            if (!customError.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.45f, 0.45f, 1.f));
+                ImGui::TextWrapped("%s", customError.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+
         ImGui::Separator();
         ImGui::Text("Colors Settings");
 
@@ -329,8 +456,8 @@ int main(int argc, char *argv[]) {
                 if (is_selected) {
                     current_colors = GLOBAL_PALLET.getPallet(i);
 
-                    shader.setUniform("colors_nb", (int) current_colors.size() -1);
-                    shader.setUniformArray("pallet", palletToArray(current_colors), current_colors.size());
+                    active->setUniform("colors_nb", (int) current_colors.size() -1);
+                    active->setUniformArray("pallet", palletToArray(current_colors), current_colors.size());
                     markDirty();
                 }
             }
@@ -338,25 +465,25 @@ int main(int argc, char *argv[]) {
         }
 
         if (ImGui::ColorEdit3("Background Color", (float*) &GLOBAL_PALLET.background_color)) {
-            shader.setUniform("background_color", GLOBAL_PALLET.background_color);
+            active->setUniform("background_color", GLOBAL_PALLET.background_color);
             markDirty();
         }
 
         if (ImGui::Checkbox("Smooth", &smooth)) {
-            shader.setUniform("smoth", smooth);
+            active->setUniform("smoth", smooth);
             markDirty();
         }
         ImGui::End();
 
         // --- Adaptive render: low-res while interacting, full-res once settled, cached when idle ---
         if (renderState == RenderState::INTERACTING) {
-            renderFractal(fractalRT_low, shader);
+            renderFractal(fractalRT_low, *active);
             updateSprite(fractalSprite, fractalRT_low, window.getSize());
             if (settleTimer.getElapsedTime().asSeconds() > SETTLE_DELAY) {
                 renderState = RenderState::SETTLING;
             }
         } else if (renderState == RenderState::SETTLING) {
-            renderFractal(fractalRT_full, shader);
+            renderFractal(fractalRT_full, *active);
             updateSprite(fractalSprite, fractalRT_full, window.getSize());
             renderState = RenderState::IDLE;
         }

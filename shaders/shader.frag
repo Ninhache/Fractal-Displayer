@@ -25,6 +25,16 @@ uniform float x_off[5];   // view center X as a 5-float expansion
 uniform float y_off[5];   // view center Y as a 5-float expansion
 uniform bool  dd_mode;    // true => use the heavy df64 path (engaged only when deep)
 
+// 0 Mandelbrot, 1 Julia, 2 Burning Ship, 3 Tricorn, 4 Multibrot
+uniform int  fractal_type;
+uniform vec2 julia_c;     // Julia constant (float precision is fine for c)
+uniform int  power_d;     // Multibrot exponent (>= 2)
+#define FT_MANDELBROT  0
+#define FT_JULIA       1
+#define FT_BURNING     2
+#define FT_TRICORN     3
+#define FT_MULTIBROT   4
+
 float modulo(float a, float b) {
 	return a - b * floor(a / b);
 }
@@ -67,6 +77,28 @@ dvec2 df_mul(dvec2 a, dvec2 b) {
 }
 dvec2 df_neg(dvec2 a) { return dvec2(-a.x, -a.y); }
 dvec2 df_sub(dvec2 a, dvec2 b) { return df_add(a, df_neg(b)); }
+dvec2 df_abs(dvec2 a) { return a.x < 0.0lf ? df_neg(a) : a; }  // |x|: hi sign decides
+
+// ---- complex arithmetic, plain double (complex = dvec2: x=re, y=im) ------------------
+dvec2 cmul(dvec2 a, dvec2 b) { return dvec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+dvec2 csqr(dvec2 z)          { return dvec2(z.x*z.x - z.y*z.y, 2.0lf*z.x*z.y); }
+dvec2 cconj(dvec2 z)         { return dvec2(z.x, -z.y); }
+dvec2 cabsc(dvec2 z)         { return dvec2(abs(z.x), abs(z.y)); }  // component-wise abs
+double cmod2(dvec2 z)        { return z.x*z.x + z.y*z.y; }
+
+// ---- complex arithmetic, df64 (complex = cdf: re/im each a df64 dvec2) ----------------
+struct cdf { dvec2 re; dvec2 im; };
+cdf cdf_add(cdf a, cdf b)  { cdf r; r.re = df_add(a.re, b.re); r.im = df_add(a.im, b.im); return r; }
+cdf cdf_mul(cdf a, cdf b) {
+	cdf r;
+	r.re = df_sub(df_mul(a.re, b.re), df_mul(a.im, b.im));
+	r.im = df_add(df_mul(a.re, b.im), df_mul(a.im, b.re));
+	return r;
+}
+cdf cdf_sqr(cdf z)   { return cdf_mul(z, z); }
+cdf cdf_conj(cdf z)  { cdf r; r.re = z.re; r.im = df_neg(z.im); return r; }
+cdf cdf_absc(cdf z)  { cdf r; r.re = df_abs(z.re); r.im = df_abs(z.im); return r; }
+double cdf_mod2(cdf z) { return df_add(df_mul(z.re, z.re), df_mul(z.im, z.im)).x; } // hi part
 
 // Reconstruct a df64 from the CPU's 5-float expansion (summed exactly via df_add).
 dvec2 expand5(float e[5]) {
@@ -199,40 +231,54 @@ void main(void) {
 
 	if (dd_mode) {
 		// ---- double-double path (~10^30) -------------------------------------------
-		dvec2 x_off_dd = expand5(x_off);
-		dvec2 y_off_dd = expand5(y_off);
-		dvec2 cx = df_sub(dvec2(dx, 0.0lf), x_off_dd);
-		dvec2 cy = df_sub(dvec2(dy, 0.0lf), y_off_dd);
+		cdf p;
+		p.re = df_sub(dvec2(dx, 0.0lf), expand5(x_off));   // pixel coordinate (df64)
+		p.im = df_sub(dvec2(dy, 0.0lf), expand5(y_off));
 
-		dvec2 zx = dvec2(0.0lf, 0.0lf);
-		dvec2 zy = dvec2(0.0lf, 0.0lf);
+		cdf z, c;
+		if (fractal_type == FT_JULIA) {
+			z = p;
+			c.re = dvec2(double(julia_c.x), 0.0lf);
+			c.im = dvec2(double(julia_c.y), 0.0lf);
+		} else {
+			z.re = dvec2(0.0lf, 0.0lf); z.im = dvec2(0.0lf, 0.0lf);
+			c = p;
+		}
+
 		while (i < iterations) {
-			dvec2 zx2 = df_mul(zx, zx);
-			dvec2 zy2 = df_mul(zy, zy);
-			if (zx2.x + zy2.x >= max_modulus) break;     // hi-only escape test
-			dvec2 nzx = df_add(df_sub(zx2, zy2), cx);
-			dvec2 xy  = df_mul(zx, zy);
-			dvec2 nzy = df_add(df_add(xy, xy), cy);       // 2*zx*zy + cy
-			zx = nzx; zy = nzy;
+			if (cdf_mod2(z) >= max_modulus) break;
+			cdf w = z;
+			if (fractal_type == FT_BURNING) w = cdf_absc(z);
+			cdf zz;
+			if (fractal_type == FT_TRICORN)        zz = cdf_sqr(cdf_conj(w));
+			else if (fractal_type == FT_MULTIBROT) { zz = w; for (int k = 1; k < power_d; k++) zz = cdf_mul(zz, w); }
+			else                                   zz = cdf_sqr(w);
+			z = cdf_add(zz, c);
 			i++;
 		}
-		mod2 = float(zx.x * zx.x + zy.x * zy.x);
+		mod2 = float(cdf_mod2(z));
 	} else {
 		// ---- fast plain-double path (~10^13) ---------------------------------------
 		// First three expansion terms reconstruct the offset to ~72 bits (full double).
-		dvec2 center;
-		center.x = dx - (double(x_off[0]) + double(x_off[1]) + double(x_off[2]));
-		center.y = dy - (double(y_off[0]) + double(y_off[1]) + double(y_off[2]));
+		dvec2 p;   // complex: x=re, y=im
+		p.x = dx - (double(x_off[0]) + double(x_off[1]) + double(x_off[2]));
+		p.y = dy - (double(y_off[0]) + double(y_off[1]) + double(y_off[2]));
 
-		dvec2 number = dvec2(0.0lf, 0.0lf);
-		dvec2 temp   = dvec2(0.0lf, 0.0lf);
-		while (number.x * number.x + number.y * number.y < max_modulus && i < iterations) {
-			temp = number;
-			number.x = temp.x * temp.x - temp.y * temp.y + center.x;
-			number.y = 2.0lf * temp.x * temp.y + center.y;
+		dvec2 z, c;
+		if (fractal_type == FT_JULIA) { z = p; c = dvec2(double(julia_c.x), double(julia_c.y)); }
+		else                          { z = dvec2(0.0lf, 0.0lf); c = p; }
+
+		while (i < iterations) {
+			if (cmod2(z) >= max_modulus) break;
+			dvec2 w = (fractal_type == FT_BURNING) ? cabsc(z) : z;
+			dvec2 zz;
+			if (fractal_type == FT_TRICORN)        zz = csqr(cconj(w));
+			else if (fractal_type == FT_MULTIBROT) { zz = w; for (int k = 1; k < power_d; k++) zz = cmul(zz, w); }
+			else                                   zz = csqr(w);
+			z = zz + c;
 			i++;
 		}
-		mod2 = float(number.x * number.x + number.y * number.y);
+		mod2 = float(cmod2(z));
 	}
 
 	vec4 color;
